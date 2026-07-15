@@ -34,6 +34,10 @@ def create_bat_launcher(script_dir: Path) -> Path:
     if not Path(python_exe).exists():
         python_exe = sys.executable  # fallback
 
+    venv_python = Path(__file__).resolve().parent.parent / ".venv312" / "Scripts" / "python.exe"
+    if venv_python.exists():
+        python_exe = str(venv_python)
+
     bat_content = f"""@echo off
 cd /d "{script_dir}"
 start "" "{python_exe}" "{script_dir / 'main.py'}" --config "{script_dir / 'config.yaml'}"

@@ -32,7 +32,7 @@ pip install -r requirements.txt
 ### 2. Run
 
 ```bash
-python main.py
+c:/Users/23211/OneDrive/Desktop/MIRCADA/.venv312/Scripts/python.exe main.py
 ```
 
 If you are running from the repository root, use the project folder name as the working directory.
