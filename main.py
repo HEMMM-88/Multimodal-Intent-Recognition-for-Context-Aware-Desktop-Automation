@@ -63,9 +63,13 @@ COLORS = {
 
 
 def load_config(config_path: str) -> dict:
+    project_dir = Path(__file__).resolve().parent
     path = Path(config_path)
+    if not path.is_absolute():
+        path = (project_dir / path).resolve()
+
     if not path.exists():
-        logger.error("Config file not found: %s", config_path)
+        logger.error("Config file not found: %s", path)
         sys.exit(1)
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
