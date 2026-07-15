@@ -1,0 +1,88 @@
+# Gesture Control Configuration (Simplified Core Model)
+# ====================================================
+# Core gestures (max 6):
+#   open_palm        -> Cursor movement
+#   pointing_up      -> Left click / Drag
+#   two_finger_tap   -> Right click
+#   three_fingers_up -> Scroll mode
+#   thumbs_up/down   -> Volume control
+#   closed_fist      -> Pause / Resume
+#   none             -> Idle
+
+settings:
+  camera_index: 0
+  detection_confidence: 0.62
+  tracking_confidence: 0.62
+  show_overlay: true
+  startup_delay: 1.0
+  app_refresh_seconds: 0.2
+
+  # Gesture stability and debounce controls
+  control:
+    gesture_confidence_threshold: 0.7
+    gesture_stability_seconds: 0.08
+    min_palm_span: 0.05
+    debounce_seconds: 0.25
+    pause_toggle_debounce: 0.8
+
+    primary_click_gesture: pointing_up
+    pinch_click_hold_seconds: 0.12
+    pinch_drag_hold_seconds: 0.45
+    pinch_break_grace_seconds: 0.12
+    drag_release_grace_seconds: 0.18
+    two_finger_tap_stable_seconds: 0.15
+
+    scroll_mode_inactivity_seconds: 1.0
+    scroll_motion_threshold: 0.01
+
+    browser_pinch_swipe_threshold: 0.12
+    video_seek_horizontal_threshold: 0.06
+    video_seek_debounce_seconds: 0.35
+    volume_step_debounce_seconds: 0.22
+
+    # Context-specific scroll tuning
+    browser_scroll_scale: 1400.0
+    code_scroll_scale: 900.0
+    default_scroll_scale: 1000.0
+
+  # Virtual mouse smoothing
+  mouse_control:
+    ema_alpha: 0.3
+    drag_ema_alpha: 0.22
+    deadzone_px: 1.3
+
+    # Keep these for flexible orientation handling
+    reverse_horizontal_motion: false
+    reverse_vertical_motion: false
+    mirror_sideways: false
+    invert_x: false
+    invert_y: false
+
+# App-group hints for context detection.
+# These are lightweight and checked at intervals to avoid lag.
+apps:
+  browser:
+    window_titles:
+      - "Google Chrome"
+      - "Chromium"
+      - "Mozilla Firefox"
+      - "Microsoft Edge"
+      - "Brave"
+      - "Opera"
+
+  video_player:
+    window_titles:
+      - "YouTube"
+      - "VLC media player"
+      - "Media Player"
+      - "Movies & TV"
+      - "Netflix"
+
+  code_editor:
+    window_titles:
+      - "Visual Studio Code"
+      - "Code"
+      - "PyCharm"
+      - "IntelliJ"
+      - "Sublime Text"
+      - "Notepad++"

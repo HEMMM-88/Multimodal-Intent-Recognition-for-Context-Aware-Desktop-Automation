@@ -1,0 +1,7 @@
+.venv/
+.venv*/
+__pycache__/
+*.py[cod]
+*.log
+launch_gesture_control.bat
+screenshot_*.png

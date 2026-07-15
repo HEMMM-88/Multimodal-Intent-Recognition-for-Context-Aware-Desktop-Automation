@@ -1,0 +1,20 @@
+# Core
+mediapipe>=0.10.0
+# MediaPipe already depends on opencv-contrib-python; keep only one OpenCV wheel installed.
+opencv-contrib-python>=4.8.0
+PyYAML>=6.0
+
+# Windows input simulation
+pyautogui>=0.9.54
+
+# Windows native audio control
+pycaw>=20230407
+comtypes>=1.2.0
+
+# Windows process/window detection
+pywin32>=306
+psutil>=5.9.0
+
+# Optional: system tray icon (nice-to-have)
+# pystray>=0.19.0
+# Pillow>=10.0.0
