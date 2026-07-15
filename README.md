@@ -27,7 +27,18 @@ A Python application that uses your **webcam + MediaPipe** to detect hand gestur
 
 ```bash
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+```
+
+On PowerShell:
+
+```powershell
+.\activate_venv.ps1
+```
+
+On Command Prompt:
+
+```cmd
+activate_venv.cmd
 ```
 
 ### 2. Install dependencies
