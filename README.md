@@ -35,6 +35,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
+If you are running from the repository root, use the project folder name as the working directory.
+
 A camera window will open. Hold your hand up and gesture away!
 
 | Key | Action |
@@ -201,7 +203,7 @@ python main.py --list-gestures        # Print gesture reference
 ## 📁 Project Structure
 
 ```
-gesture_control/
+Multimodal Intent Recognition for Context-Aware Desktop Automation/
 ├── main.py               # Main loop + overlay rendering
 ├── gesture_detector.py   # MediaPipe landmark → gesture name
 ├── action_executor.py    # Gesture action → system action

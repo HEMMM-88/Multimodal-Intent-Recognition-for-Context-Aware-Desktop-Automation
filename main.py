@@ -25,6 +25,8 @@ import yaml
 from gesture_detector import detect_gesture
 from action_executor import execute_action
 from app_detector import get_active_window_info, match_app_config
+from events import GestureEvent
+from intent_classifier import classify as classify_intent
 
 try:
     import pyautogui
@@ -393,8 +395,8 @@ def run(config_path: str, no_overlay: bool = False):
                         reverse_vertical=reverse_vertical,
                     )
 
-                    # Video context: open palm + horizontal move => seek
-                    if app_context == "video_player":
+                    # Horizontal open-palm move => seek, only where the intent classifier says so.
+                    if classify_intent("open_palm_horizontal", app_context).name == "video_seek":
                         if open_palm_prev_x is not None:
                             dx = pointer_norm[0] - open_palm_prev_x
                             if abs(dx) >= video_seek_threshold and _debounced("video_seek", debounce_clock, video_seek_debounce, now):
@@ -427,9 +429,10 @@ def run(config_path: str, no_overlay: bool = False):
                     if hold_time >= pinch_click_hold:
                         pinch_armed_click = True
 
-                    # Browser context: swipe nav is only enabled for pinch mode to avoid accidental triggers.
+                    # Swipe nav fires only where the classifier resolves it to browser_nav,
+                    # and only for pinch mode, to avoid accidental triggers.
                     if (
-                        app_context == "browser"
+                        classify_intent("primary_click_swipe", app_context).name == "browser_nav"
                         and primary_click_gesture == "pinch"
                         and not pinch_swipe_done
                         and pinch_start_x is not None
@@ -482,8 +485,9 @@ def run(config_path: str, no_overlay: bool = False):
                         and now - two_finger_start >= two_finger_stable
                         and _debounced("right_click", debounce_clock, debounce_seconds, now)
                     ):
-                        execute_action("right_click")
-                        display_action = "CONTEXT_MENU" if app_context == "code_editor" else "RIGHT_CLICK"
+                        intent = classify_intent("two_finger_tap", app_context)
+                        execute_action(intent.action)
+                        display_action = intent.label
                         two_finger_fired = True
                 else:
                     two_finger_start = None
@@ -499,18 +503,22 @@ def run(config_path: str, no_overlay: bool = False):
                     if scroll_prev_y is not None:
                         dy = palm_center[1] - scroll_prev_y
                         if abs(dy) >= scroll_motion_threshold:
-                            if app_context == "video_player":
+                            three_finger_intent = classify_intent("three_fingers_up", app_context)
+                            if three_finger_intent.name == "volume_step":
                                 if _debounced("volume_step", debounce_clock, 0.08, now):
                                     execute_action("volume_down" if dy > 0 else "volume_up")
                                     display_action = "VOLUME_DOWN" if dy > 0 else "VOLUME_UP"
                             else:
+                                # Scroll speed per context is a magnitude table, not a branching
+                                # decision, so it stays a direct lookup rather than routing
+                                # through the classifier.
                                 scale = (
                                     browser_scroll_scale if app_context == "browser"
                                     else code_scroll_scale if app_context == "code_editor"
                                     else default_scroll_scale
                                 )
                                 pyautogui.scroll(int(-dy * scale))
-                                display_action = "SCROLL"
+                                display_action = three_finger_intent.label
                             scroll_last_active = now
                         scroll_prev_y = palm_center[1]
                 else:
@@ -519,13 +527,17 @@ def run(config_path: str, no_overlay: bool = False):
                         scroll_prev_y = None
                         display_action = "SCROLL_MODE_OFF"
 
-                # Dedicated thumb volume gestures.
+                # Dedicated thumb volume gestures — routed through the classifier so a future
+                # context override (e.g. thumbs_up meaning something else in a call) needs
+                # only a new RULES entry, not a main.py change.
                 if gesture == "thumbs_up" and _debounced("volume_up_gesture", debounce_clock, volume_step_debounce, now):
-                    execute_action("volume_up")
-                    display_action = "VOLUME_UP"
+                    intent = classify_intent("thumbs_up", app_context)
+                    execute_action(intent.action)
+                    display_action = intent.label
                 elif gesture == "thumbs_down" and _debounced("volume_down_gesture", debounce_clock, volume_step_debounce, now):
-                    execute_action("volume_down")
-                    display_action = "VOLUME_DOWN"
+                    intent = classify_intent("thumbs_down", app_context)
+                    execute_action(intent.action)
+                    display_action = intent.label
 
         else:
             # No hand: cleanup states and safely stop drag
