@@ -26,7 +26,7 @@ from gesture_detector import detect_gesture
 from action_executor import execute_action
 from app_detector import get_active_window_info, match_app_config
 from events import GestureEvent
-from intent_classifier import classify as classify_intent
+from intent_classifier import classify as classify_intent, load_rules_from_config, RULES
 
 try:
     import pyautogui
@@ -63,13 +63,9 @@ COLORS = {
 
 
 def load_config(config_path: str) -> dict:
-    project_dir = Path(__file__).resolve().parent
     path = Path(config_path)
-    if not path.is_absolute():
-        path = (project_dir / path).resolve()
-
     if not path.exists():
-        logger.error("Config file not found: %s", path)
+        logger.error("Config file not found: %s", config_path)
         sys.exit(1)
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
@@ -85,20 +81,38 @@ def _debounced(name: str, clock: dict[str, float], interval: float, now: float) 
     return True
 
 
+# Known context buckets and their keyword fallbacks, used only when the
+# active window didn't match a config.yaml `apps.<key>` entry. Config is
+# the single source of truth when it matches — this table exists so an
+# unconfigured app (e.g. a browser fork, or a window-title format change)
+# still lands in a sensible bucket instead of always falling to "default".
+_CONTEXT_FALLBACK_TOKENS = {
+    "browser": ("chrome", "firefox", "edge", "brave", "opera", "browser"),
+    "video_player": ("vlc", "youtube", "netflix", "potplayer", "mpc", "media player", "video"),
+    "code_editor": ("vscode", "visual studio", "code", "pycharm", "intellij", "sublime", "notepad++"),
+    "document_editor": ("word", "winword", "notepad", "wordpad", "acrobat", "foxit", "pdf", "libreoffice writer"),
+    "terminal": ("cmd.exe", "powershell", "windows terminal", "wt.exe", "conemu", "bash", "wsl"),
+}
+
+
 def _classify_context(app_key: str | None, title: str, proc: str) -> str:
-    """Map foreground app info into coarse contexts without expensive logic."""
-    text = f"{app_key or ''} {title} {proc}".lower()
+    """
+    Resolve the active window into a context bucket.
 
-    browser_tokens = ("chrome", "firefox", "edge", "brave", "opera", "browser")
-    video_tokens = ("vlc", "youtube", "netflix", "potplayer", "mpc", "media player", "video")
-    code_tokens = ("vscode", "visual studio", "code", "pycharm", "intellij", "sublime", "notepad++")
+    Priority:
+      1) If `app_key` (matched against config.yaml's `apps:` section) is
+         itself one of the known context buckets, use it directly.
+      2) Otherwise fall back to keyword matching against the window title
+         and process name.
+      3) Otherwise "default".
+    """
+    if app_key in _CONTEXT_FALLBACK_TOKENS:
+        return app_key
 
-    if any(t in text for t in browser_tokens):
-        return "browser"
-    if any(t in text for t in video_tokens):
-        return "video_player"
-    if any(t in text for t in code_tokens):
-        return "code_editor"
+    text = f"{title} {proc}".lower()
+    for context, tokens in _CONTEXT_FALLBACK_TOKENS.items():
+        if any(t in text for t in tokens):
+            return context
     return "default"
 
 
@@ -170,7 +184,7 @@ def draw_overlay(
     put("Q = Quit | P = Manual Pause", COLORS["white"], 0.5)
 
 
-def print_gesture_reference():
+def print_gesture_reference(config_path: str = "config.yaml"):
     print(
         """
 Core Gestures (6):
@@ -184,9 +198,27 @@ Core Gestures (6):
 """
     )
 
+    try:
+        config = load_config(config_path)
+        load_rules_from_config(config)
+    except Exception as exc:
+        print(f"(Could not load '{config_path}' to show context-specific overrides: {exc})")
+        return
+
+    print("Context-Specific Overrides (live from config.yaml -> context_rules):")
+    for context in sorted(RULES):
+        if context == "default":
+            continue
+        print(f"  [{context}]")
+        for gesture, (intent, action, label) in sorted(RULES[context].items()):
+            action_str = f", action={action}" if action else ""
+            print(f"    {gesture:22s} -> {label}  (intent={intent}{action_str})")
+    print()
+
 
 def run(config_path: str, no_overlay: bool = False):
     config = load_config(config_path)
+    load_rules_from_config(config)  # override/extend intent_classifier.RULES from YAML
     settings = config.get("settings", {})
     control = settings.get("control", {})
     mouse_cfg = settings.get("mouse_control", {})
@@ -399,13 +431,21 @@ def run(config_path: str, no_overlay: bool = False):
                         reverse_vertical=reverse_vertical,
                     )
 
-                    # Horizontal open-palm move => seek, only where the intent classifier says so.
-                    if classify_intent("open_palm_horizontal", app_context).name == "video_seek":
+                    # Horizontal open-palm move => a directional intent, resolved by context.
+                    # Each supported intent maps to its own forward/back key + label so this
+                    # stays a single generalized block instead of one if-branch per context.
+                    horiz_intent = classify_intent("open_palm_horizontal", app_context).name
+                    HORIZONTAL_MOTION_ACTIONS = {
+                        "video_seek": ("key:right", "key:left", "SEEK_FORWARD", "SEEK_BACK"),
+                        "page_nav": ("key:pagedown", "key:pageup", "PAGE_DOWN", "PAGE_UP"),
+                    }
+                    if horiz_intent in HORIZONTAL_MOTION_ACTIONS:
+                        fwd_action, back_action, fwd_label, back_label = HORIZONTAL_MOTION_ACTIONS[horiz_intent]
                         if open_palm_prev_x is not None:
                             dx = pointer_norm[0] - open_palm_prev_x
-                            if abs(dx) >= video_seek_threshold and _debounced("video_seek", debounce_clock, video_seek_debounce, now):
-                                execute_action("key:right" if dx > 0 else "key:left")
-                                display_action = "SEEK_FORWARD" if dx > 0 else "SEEK_BACK"
+                            if abs(dx) >= video_seek_threshold and _debounced("horizontal_motion", debounce_clock, video_seek_debounce, now):
+                                execute_action(fwd_action if dx > 0 else back_action)
+                                display_action = fwd_label if dx > 0 else back_label
                         open_palm_prev_x = pointer_norm[0]
                 else:
                     open_palm_prev_x = None
@@ -624,7 +664,7 @@ def main():
     args = parser.parse_args()
 
     if args.list_gestures:
-        print_gesture_reference()
+        print_gesture_reference(args.config)
         return
     run(args.config, no_overlay=args.no_overlay)
 

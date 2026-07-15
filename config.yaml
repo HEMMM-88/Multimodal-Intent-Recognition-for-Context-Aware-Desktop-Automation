@@ -86,3 +86,87 @@ apps:
       - "IntelliJ"
       - "Sublime Text"
       - "Notepad++"
+
+  document_editor:
+    window_titles:
+      - "Word"
+      - "Notepad"
+      - "WordPad"
+      - "Adobe Acrobat"
+      - "Foxit"
+      - "LibreOffice Writer"
+
+  terminal:
+    window_titles:
+      - "Command Prompt"
+      - "Windows PowerShell"
+      - "Windows Terminal"
+      - "ConEmu"
+      - "WSL"
+
+# Context-aware intent rules — no code changes needed to retune behavior.
+# Each entry: context -> gesture (or synthetic trigger) -> {intent, action, label}
+#   - `intent`: internal name main.py switches on for stateful/continuous gestures
+#   - `action`: an action_executor.py action string, or omit/null for stateful intents
+#   - `label`:  text shown on the HUD overlay
+# Synthetic trigger keys (raised by main.py, not real gestures):
+#   primary_click_swipe   -> horizontal drag during the primary click gesture
+#   open_palm_horizontal  -> horizontal motion while open_palm is held
+# Unlisted (context, gesture) pairs fall back to the "default" context's rule,
+# and if that's also missing, to intent "none" (no-op).
+context_rules:
+  default:
+    two_finger_tap:
+      intent: right_click
+      action: right_click
+      label: "RIGHT_CLICK"
+    thumbs_up:
+      intent: volume_up
+      action: volume_up
+      label: "VOLUME_UP"
+    thumbs_down:
+      intent: volume_down
+      action: volume_down
+      label: "VOLUME_DOWN"
+    closed_fist:
+      intent: pause_toggle
+      label: "PAUSE_TOGGLE"
+    three_fingers_up:
+      intent: scroll
+      label: "SCROLL"
+    open_palm_horizontal:
+      intent: none
+      label: "-"
+    primary_click_swipe:
+      intent: none
+      label: "-"
+
+  browser:
+    primary_click_swipe:
+      intent: browser_nav
+      label: "BACK/FORWARD"
+
+  video_player:
+    three_fingers_up:
+      intent: volume_step
+      label: "VOLUME_STEP"
+    open_palm_horizontal:
+      intent: video_seek
+      label: "SEEK"
+
+  code_editor:
+    two_finger_tap:
+      intent: right_click
+      action: right_click
+      label: "CONTEXT_MENU"
+
+  document_editor:
+    open_palm_horizontal:
+      intent: page_nav
+      label: "PAGE_NAV"
+
+  terminal:
+    two_finger_tap:
+      intent: right_click
+      action: right_click
+      label: "PASTE"   # cmd.exe/PowerShell paste-on-right-click by default

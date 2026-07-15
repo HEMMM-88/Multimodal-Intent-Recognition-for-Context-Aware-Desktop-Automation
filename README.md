@@ -55,6 +55,14 @@ python main.py
 
 This works from the project folder when the virtual environment is active.
 
+If you are in the parent folder [MIRCADA](.) and want a simpler entry point, you can also run:
+
+```powershell
+python main.py
+```
+
+This will launch the project from the correct subfolder automatically.
+
 A camera window will open. Hold your hand up and gesture away!
 
 | Key | Action |

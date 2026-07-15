@@ -76,3 +76,45 @@ def register_rule(context: str, gesture: str, intent_name: str, action: str | No
     lets new context/gesture rules be added without editing this file.
     """
     RULES.setdefault(context, {})[gesture] = (intent_name, action, label)
+
+
+def load_rules_from_config(config: dict) -> int:
+    """
+    Merge config.yaml's `context_rules:` section into RULES, overriding the
+    built-in defaults where present. Malformed entries are logged and
+    skipped rather than crashing startup — a typo in the YAML shouldn't
+    take down the whole assistant.
+
+    Returns the number of rules successfully loaded.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    context_rules = config.get("context_rules")
+    if not context_rules:
+        logger.info("No context_rules in config — using built-in defaults only.")
+        return 0
+
+    loaded = 0
+    for context, gestures in context_rules.items():
+        if not isinstance(gestures, dict):
+            logger.warning("context_rules.%s is not a mapping — skipped.", context)
+            continue
+        for gesture, spec in gestures.items():
+            if not isinstance(spec, dict) or "intent" not in spec or "label" not in spec:
+                logger.warning(
+                    "context_rules.%s.%s missing required 'intent'/'label' — skipped.",
+                    context, gesture,
+                )
+                continue
+            register_rule(
+                context=context,
+                gesture=gesture,
+                intent_name=spec["intent"],
+                action=spec.get("action"),
+                label=spec["label"],
+            )
+            loaded += 1
+
+    logger.info("Loaded %d context rule(s) from config.yaml.", loaded)
+    return loaded   
