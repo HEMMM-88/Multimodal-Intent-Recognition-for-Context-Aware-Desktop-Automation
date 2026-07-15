@@ -23,19 +23,26 @@ A Python application that uses your **webcam + MediaPipe** to detect hand gestur
 
 ## 🚀 Quick Start
 
-### 1. Install dependencies
+### 1. Create and activate the virtual environment
+
+```bash
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run
+### 3. Run
 
 ```bash
-c:/Users/23211/OneDrive/Desktop/MIRCADA/.venv312/Scripts/python.exe main.py
+python main.py
 ```
 
-If you are running from the repository root, use the project folder name as the working directory.
+This works from the project folder when the virtual environment is active.
 
 A camera window will open. Hold your hand up and gesture away!
 
