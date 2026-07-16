@@ -26,7 +26,13 @@ from gesture_detector import detect_gesture
 from action_executor import execute_action
 from app_detector import get_active_window_info, match_app_config
 from events import GestureEvent
-from intent_classifier import classify as classify_intent, load_rules_from_config, RULES
+from intent_classifier import (
+    classify as classify_intent,
+    classify_combo,
+    load_rules_from_config,
+    load_combo_rules_from_config,
+    RULES,
+)
 
 try:
     import pyautogui
@@ -92,6 +98,14 @@ _CONTEXT_FALLBACK_TOKENS = {
     "code_editor": ("vscode", "visual studio", "code", "pycharm", "intellij", "sublime", "notepad++"),
     "document_editor": ("word", "winword", "notepad", "wordpad", "acrobat", "foxit", "pdf", "libreoffice writer"),
     "terminal": ("cmd.exe", "powershell", "windows terminal", "wt.exe", "conemu", "bash", "wsl"),
+}
+
+# Forward/back key + label per two_hand_swipe intent name (see classify_intent
+# calls with the "two_hand_swipe" synthetic trigger). "none" intentionally
+# has no entry, so an unmatched context just does nothing.
+TWO_HAND_SWIPE_ACTIONS = {
+    "window_switch": ("key:alt+tab", "key:alt+shift+tab", "NEXT_WINDOW", "PREV_WINDOW"),
+    "browser_tab_switch": ("key:ctrl+tab", "key:ctrl+shift+tab", "NEXT_TAB", "PREV_TAB"),
 }
 
 
@@ -160,6 +174,7 @@ def draw_overlay(
     paused: bool,
     scroll_mode: bool,
     fps: float,
+    modifier_gesture: str = "none",
 ):
     h, _ = frame.shape[:2]
     overlay = frame.copy()
@@ -177,6 +192,8 @@ def draw_overlay(
     put(f"App: {app_name}", COLORS["blue"])
     put(f"Context: {context}", COLORS["blue"])
     put(f"Gesture: {gesture_label}", COLORS["green"], 0.62, 2)
+    if modifier_gesture != "none":
+        put(f"Modifier hand: {modifier_gesture}", COLORS["green"], 0.52)
     put(f"Action: {action_label}", COLORS["yellow"])
     put(f"Scroll Mode: {'ON' if scroll_mode else 'OFF'}")
     put(f"Status: {'PAUSED' if paused else 'ACTIVE'}", COLORS["red"] if paused else COLORS["green"])
@@ -218,7 +235,8 @@ Core Gestures (6):
 
 def run(config_path: str, no_overlay: bool = False):
     config = load_config(config_path)
-    load_rules_from_config(config)  # override/extend intent_classifier.RULES from YAML
+    load_rules_from_config(config)        # override/extend intent_classifier.RULES from YAML
+    load_combo_rules_from_config(config)  # populate intent_classifier.COMBO_RULES from YAML
     settings = config.get("settings", {})
     control = settings.get("control", {})
     mouse_cfg = settings.get("mouse_control", {})
@@ -269,6 +287,16 @@ def run(config_path: str, no_overlay: bool = False):
     default_scroll_scale = float(control.get("default_scroll_scale", 1000.0))
     code_scroll_scale = float(control.get("code_scroll_scale", 900.0))
 
+    two_hand_enabled = bool(control.get("two_hand_enabled", True))
+    primary_hand_label = str(control.get("primary_hand", "Right")).strip().capitalize()
+    if primary_hand_label not in ("Left", "Right"):
+        primary_hand_label = "Right"
+    modifier_hand_label = "Left" if primary_hand_label == "Right" else "Right"
+    swap_handedness = bool(control.get("swap_handedness", False))
+    combo_debounce_seconds = float(control.get("combo_debounce_seconds", 0.35))
+    two_hand_swipe_threshold = float(control.get("two_hand_swipe_threshold", 0.09))
+    two_hand_swipe_debounce = float(control.get("two_hand_swipe_debounce_seconds", 0.6))
+
     logger.info("Starting Gesture Control | config=%s camera=%s", config_path, camera_idx)
 
     if not PYAUTOGUI_AVAILABLE:
@@ -288,7 +316,7 @@ def run(config_path: str, no_overlay: bool = False):
 
     hands = mp_hands.Hands(
         static_image_mode=False,
-        max_num_hands=1,
+        max_num_hands=2,
         model_complexity=0,  # lower compute for better FPS stability
         min_detection_confidence=det_conf,
         min_tracking_confidence=track_conf,
@@ -314,6 +342,7 @@ def run(config_path: str, no_overlay: bool = False):
     scroll_prev_y = None
     scroll_last_active = 0.0
     open_palm_prev_x = None
+    both_swipe_prev_x = None  # (primary_x, modifier_x) from the last frame both hands were open_palm
     lost_hand_since = None
 
     # Gesture stabilization state (filters short misclassifications).
@@ -359,21 +388,63 @@ def run(config_path: str, no_overlay: bool = False):
         gesture = "none"
         confidence = 0.0
         details = {}
+        modifier_gesture = "none"
+        modifier_palm_x = None
 
         if results.multi_hand_landmarks:
             lost_hand_since = None
-            hand_lm = results.multi_hand_landmarks[0]
-            landmarks = hand_lm.landmark
-            raw_gesture, confidence, details = detect_gesture(landmarks, return_details=True)
 
-            if show_overlay:
-                mp_drawing.draw_landmarks(
-                    frame,
-                    hand_lm,
-                    mp_hands.HAND_CONNECTIONS,
-                    mp_drawing_styles.get_default_hand_landmarks_style(),
-                    mp_drawing_styles.get_default_hand_connections_style(),
-                )
+            # Map each detected hand to a Left/Right label. MediaPipe's handedness
+            # assumes a particular camera/mirroring convention that doesn't always
+            # match ours (the frame is flipped before processing) — swap_handedness
+            # in config.yaml corrects this if the overlay shows hands backwards.
+            hands_by_label: dict[str, object] = {}
+            handedness_list = results.multi_handedness or []
+            for i, hand_lm in enumerate(results.multi_hand_landmarks):
+                if i < len(handedness_list):
+                    label = handedness_list[i].classification[0].label  # "Left" or "Right"
+                else:
+                    label = "Right"
+                if swap_handedness:
+                    label = "Left" if label == "Right" else "Right"
+                hands_by_label[label] = hand_lm
+
+                if show_overlay:
+                    mp_drawing.draw_landmarks(
+                        frame,
+                        hand_lm,
+                        mp_hands.HAND_CONNECTIONS,
+                        mp_drawing_styles.get_default_hand_landmarks_style(),
+                        mp_drawing_styles.get_default_hand_connections_style(),
+                    )
+
+            primary_hand_lm = hands_by_label.get(primary_hand_label)
+            modifier_hand_lm = hands_by_label.get(modifier_hand_label) if two_hand_enabled else None
+
+            if primary_hand_lm is None and len(hands_by_label) == 1:
+                # Only one hand visible and it didn't match the configured primary
+                # label (handedness misdetection is common at odd angles) — treat
+                # whatever hand IS visible as primary rather than going idle.
+                primary_hand_lm = next(iter(hands_by_label.values()))
+                modifier_hand_lm = None
+
+            if modifier_hand_lm is not None:
+                mod_gesture, mod_conf, mod_details = detect_gesture(modifier_hand_lm.landmark, return_details=True)
+                mod_palm_span = float(mod_details.get("palm_span", 0.0))
+                if mod_conf >= conf_threshold and mod_palm_span >= min_palm_span:
+                    modifier_gesture = mod_gesture
+                    mod_palm_center = mod_details.get("palm_center")
+                    if mod_palm_center:
+                        modifier_palm_x = mod_palm_center[0]
+
+            if primary_hand_lm is None:
+                # Neither label resolved to a hand (shouldn't normally happen) —
+                # fall through to the "no hand" branch below.
+                results.multi_hand_landmarks = None
+
+        if results.multi_hand_landmarks and primary_hand_lm is not None:
+            landmarks = primary_hand_lm.landmark
+            raw_gesture, confidence, details = detect_gesture(landmarks, return_details=True)
 
             palm_span = float(details.get("palm_span", 0.0))
             size_conf = float(details.get("size_conf", 1.0))
@@ -450,6 +521,42 @@ def run(config_path: str, no_overlay: bool = False):
                 else:
                     open_palm_prev_x = None
 
+                # Two-hand swipe: both hands open and moving together horizontally
+                # => window/tab switch. Resolved through the classifier the same way
+                # single-hand triggers are, so context can redirect it (e.g. browser
+                # tabs instead of OS windows) without touching this block. Mutually
+                # exclusive with the combo gestures above by construction — combos key
+                # off the primary hand being two_finger_tap/thumbs_up/thumbs_down, this
+                # keys off the primary hand being open_palm, so the two never overlap.
+                if (
+                    two_hand_enabled
+                    and gesture == "open_palm"
+                    and modifier_gesture == "open_palm"
+                    and modifier_palm_x is not None
+                    and palm_center is not None
+                ):
+                    if both_swipe_prev_x is not None:
+                        prev_primary_x, prev_modifier_x = both_swipe_prev_x
+                        dx_primary = palm_center[0] - prev_primary_x
+                        dx_modifier = modifier_palm_x - prev_modifier_x
+                        # Both hands must move the same direction, each past threshold,
+                        # in the same frame-to-frame window — this is what distinguishes
+                        # an intentional two-hand swipe from one hand drifting on its own.
+                        if (
+                            abs(dx_primary) >= two_hand_swipe_threshold
+                            and abs(dx_modifier) >= two_hand_swipe_threshold
+                            and (dx_primary > 0) == (dx_modifier > 0)
+                            and _debounced("two_hand_swipe", debounce_clock, two_hand_swipe_debounce, now)
+                        ):
+                            swipe_intent = classify_intent("two_hand_swipe", app_context)
+                            if swipe_intent.name in TWO_HAND_SWIPE_ACTIONS:
+                                fwd, back, fwd_label, back_label = TWO_HAND_SWIPE_ACTIONS[swipe_intent.name]
+                                execute_action(fwd if dx_primary > 0 else back)
+                                display_action = fwd_label if dx_primary > 0 else back_label
+                    both_swipe_prev_x = (palm_center[0], modifier_palm_x)
+                else:
+                    both_swipe_prev_x = None
+
                 # 2 + 3) Primary click gesture => click(hold) / drag(hold longer)
                 if gesture == primary_click_gesture and pointer_norm:
                     pinch_last_seen = now
@@ -519,20 +626,33 @@ def run(config_path: str, no_overlay: bool = False):
                         pinch_swipe_done = False
                         pinch_start_x = None
 
-                # 4) Two-finger tap => right click (stable 150ms)
+                # Two-hand combo resolution: a held pose on the modifier hand changes
+                # what a fire-once primary-hand gesture does. Only consulted for the
+                # three gestures below — continuous control (cursor/scroll/drag) and
+                # the closed_fist pause toggle are never combo targets (see the
+                # combo_rules comment block in config.yaml for the reasoning).
+                combo_intent = (
+                    classify_combo(modifier_gesture, gesture, app_context)
+                    if two_hand_enabled and gesture in ("two_finger_tap", "thumbs_up", "thumbs_down")
+                    else None
+                )
+
+                # 4) Two-finger tap => right click (stable 150ms), or a combo action
                 if gesture == "two_finger_tap":
                     if two_finger_start is None:
                         two_finger_start = now
                         two_finger_fired = False
-                    if (
-                        not two_finger_fired
-                        and now - two_finger_start >= two_finger_stable
-                        and _debounced("right_click", debounce_clock, debounce_seconds, now)
-                    ):
-                        intent = classify_intent("two_finger_tap", app_context)
-                        execute_action(intent.action)
-                        display_action = intent.label
-                        two_finger_fired = True
+                    if not two_finger_fired and now - two_finger_start >= two_finger_stable:
+                        if combo_intent is not None:
+                            if _debounced("right_click_combo", debounce_clock, combo_debounce_seconds, now):
+                                execute_action(combo_intent.action)
+                                display_action = combo_intent.label
+                                two_finger_fired = True
+                        elif _debounced("right_click", debounce_clock, debounce_seconds, now):
+                            intent = classify_intent("two_finger_tap", app_context)
+                            execute_action(intent.action)
+                            display_action = intent.label
+                            two_finger_fired = True
                 else:
                     two_finger_start = None
                     two_finger_fired = False
@@ -573,15 +693,25 @@ def run(config_path: str, no_overlay: bool = False):
 
                 # Dedicated thumb volume gestures — routed through the classifier so a future
                 # context override (e.g. thumbs_up meaning something else in a call) needs
-                # only a new RULES entry, not a main.py change.
-                if gesture == "thumbs_up" and _debounced("volume_up_gesture", debounce_clock, volume_step_debounce, now):
-                    intent = classify_intent("thumbs_up", app_context)
-                    execute_action(intent.action)
-                    display_action = intent.label
-                elif gesture == "thumbs_down" and _debounced("volume_down_gesture", debounce_clock, volume_step_debounce, now):
-                    intent = classify_intent("thumbs_down", app_context)
-                    execute_action(intent.action)
-                    display_action = intent.label
+                # only a new RULES entry, not a main.py change. Also combo-eligible.
+                if gesture == "thumbs_up":
+                    if combo_intent is not None:
+                        if _debounced("volume_up_gesture_combo", debounce_clock, combo_debounce_seconds, now):
+                            execute_action(combo_intent.action)
+                            display_action = combo_intent.label
+                    elif _debounced("volume_up_gesture", debounce_clock, volume_step_debounce, now):
+                        intent = classify_intent("thumbs_up", app_context)
+                        execute_action(intent.action)
+                        display_action = intent.label
+                elif gesture == "thumbs_down":
+                    if combo_intent is not None:
+                        if _debounced("volume_down_gesture_combo", debounce_clock, combo_debounce_seconds, now):
+                            execute_action(combo_intent.action)
+                            display_action = combo_intent.label
+                    elif _debounced("volume_down_gesture", debounce_clock, volume_step_debounce, now):
+                        intent = classify_intent("thumbs_down", app_context)
+                        execute_action(intent.action)
+                        display_action = intent.label
 
         else:
             # No hand: cleanup states and safely stop drag
@@ -629,6 +759,7 @@ def run(config_path: str, no_overlay: bool = False):
                 paused=paused,
                 scroll_mode=scroll_mode,
                 fps=fps,
+                modifier_gesture=modifier_gesture,
             )
             if paused:
                 cv2.putText(

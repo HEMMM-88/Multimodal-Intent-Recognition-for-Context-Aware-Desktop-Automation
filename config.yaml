@@ -43,6 +43,18 @@ settings:
     # Context-specific scroll tuning
     browser_scroll_scale: 1400.0
     code_scroll_scale: 900.0
+
+    # Two-hand combo gestures
+    two_hand_enabled: true
+    primary_hand: "Right"        # this hand drives the cursor + all single-hand gestures
+    swap_handedness: false       # MediaPipe's Left/Right can come out mirrored depending on
+                                  # camera setup — the overlay shows detected hand labels live;
+                                  # if your right hand shows as "Left" on screen, set this true
+    combo_debounce_seconds: 0.35
+
+    # Two-hand swipe (both hands open_palm, moving together) => window/tab switch
+    two_hand_swipe_threshold: 0.09        # per-hand horizontal motion required (normalized 0-1)
+    two_hand_swipe_debounce_seconds: 0.6
     default_scroll_scale: 1000.0
 
   # Virtual mouse smoothing
@@ -104,6 +116,55 @@ apps:
       - "ConEmu"
       - "WSL"
 
+# Two-hand combo rules — a held pose on the *modifier* hand (the non-primary
+# hand, see settings.control.primary_hand) changes what a *primary*-hand
+# discrete gesture does. Only fire-once gestures can be combo targets today:
+# two_finger_tap, thumbs_up, thumbs_down. Continuous gestures (open_palm
+# cursor, three_fingers_up scroll, pinch/pointing click-drag) and the
+# closed_fist pause toggle are deliberately never combo targets — pause must
+# stay a reliable single-hand safety gesture, and continuous control isn't a
+# good fit for combo semantics.
+#
+# Structure: context -> modifier_gesture -> primary_gesture -> {intent, action, label}
+# Falls back the same way context_rules does: unmatched context -> "default",
+# unmatched combo -> no combo (the normal single-hand action for that gesture runs).
+# Two-hand combo rules — raise your OTHER hand (any pose, no specific shape
+# needed) while your primary hand does thumbs_up/thumbs_down, and it means
+# Redo/Undo instead of volume. That's the whole rule: second hand up = shortcuts.
+#
+# Structure: context -> primary_gesture -> {intent, action, label}
+# Falls back the same way context_rules does: unmatched context -> "default",
+# unmatched gesture -> no combo (the normal single-hand action for that
+# gesture runs instead, e.g. thumbs_up alone still means volume up).
+# Two-hand combo rules — raise your OTHER hand (any pose, no specific shape
+# needed) while your primary hand does thumbs_up/thumbs_down, and it means
+# fullscreen/minimize instead of volume. Same rule everywhere: up = go
+# bigger, down = go smaller. The "bigger" action's exact key differs by
+# context (F11 fullscreens a browser/app window; a video player's own player
+# usually binds fullscreen to plain "f" instead, and F11 would just
+# fullscreen the browser tab around the video rather than the video itself).
+#
+# Structure: context -> primary_gesture -> {intent, action, label}
+# Falls back the same way context_rules does: unmatched context -> "default",
+# unmatched gesture -> no combo (the normal single-hand action runs instead,
+# e.g. thumbs_up alone still means volume up).
+combo_rules:
+  default:
+    thumbs_up:
+      intent: fullscreen_toggle
+      action: "key:f11"
+      label: "FULLSCREEN (2H)"
+    thumbs_down:
+      intent: minimize_window
+      action: "key:win+down"
+      label: "MINIMIZE (2H)"
+
+  video_player:
+    thumbs_up:
+      intent: fullscreen_toggle
+      action: "key:f"
+      label: "FULLSCREEN VIDEO (2H)"
+
 # Context-aware intent rules — no code changes needed to retune behavior.
 # Each entry: context -> gesture (or synthetic trigger) -> {intent, action, label}
 #   - `intent`: internal name main.py switches on for stateful/continuous gestures
@@ -112,6 +173,11 @@ apps:
 # Synthetic trigger keys (raised by main.py, not real gestures):
 #   primary_click_swipe   -> horizontal drag during the primary click gesture
 #   open_palm_horizontal  -> horizontal motion while open_palm is held
+#   two_hand_swipe        -> both hands open_palm, moving together horizontally
+#                            (see settings.control.two_hand_swipe_threshold /
+#                            two_hand_swipe_debounce_seconds). Intent name
+#                            resolved here must exist in main.py's
+#                            TWO_HAND_SWIPE_ACTIONS table or nothing fires.
 # Unlisted (context, gesture) pairs fall back to the "default" context's rule,
 # and if that's also missing, to intent "none" (no-op).
 context_rules:
@@ -140,11 +206,17 @@ context_rules:
     primary_click_swipe:
       intent: none
       label: "-"
+    two_hand_swipe:
+      intent: window_switch
+      label: "WINDOW_SWITCH"
 
   browser:
     primary_click_swipe:
       intent: browser_nav
       label: "BACK/FORWARD"
+    two_hand_swipe:
+      intent: browser_tab_switch
+      label: "TAB_SWITCH"
 
   video_player:
     three_fingers_up:
