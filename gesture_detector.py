@@ -88,11 +88,19 @@ def detect_gesture(landmarks, return_details: bool = False):
 
     # Thumb-only gestures for volume control.
     elif thumb and not index and not middle and not ring and not pinky:
-        # Relative to wrist, thumb tip higher => thumbs up.
-        if landmarks[4].y < landmarks[0].y:
+        # Use thumb MCP (landmark 2) as the reference — more stable than wrist
+        # because it moves with the hand, so the check works at any camera angle.
+        # Thumb tip (4) clearly above MCP (2) => thumbs up.
+        # Add a small margin (0.02) so a nearly-horizontal thumb doesn't flicker.
+        thumb_tip_y = landmarks[4].y
+        thumb_mcp_y = landmarks[2].y
+        thumb_vertical_diff = thumb_mcp_y - thumb_tip_y  # positive when tip is above mcp
+        if thumb_vertical_diff > 0.02:
             gesture = "thumbs_up"
-        else:
+        elif thumb_vertical_diff < -0.02:
             gesture = "thumbs_down"
+        else:
+            gesture = "none"  # thumb is horizontal — ambiguous, skip it
         confidence = 0.88 * size_conf
 
     # Pinch: thumb + index close. Allow one trailing finger to be noisy/up for robustness.

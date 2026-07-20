@@ -38,17 +38,40 @@ RULES: dict[str, dict[str, tuple[str, str | None, str]]] = {
         "open_palm_horizontal": ("none", None, "-"),
         "primary_click_swipe": ("none", None, "-"),
         "two_hand_swipe": ("window_switch", None, "WINDOW_SWITCH"),
+        "two_hand_swipe_vertical": ("fast_scroll", None, "FAST_SCROLL"),
+        "two_hand_pointing_up": ("new_window", "key:win+n", "NEW_WINDOW (2H)"),
+        "two_hand_closed_fist": ("show_desktop", "show_desktop", "SHOW_DESKTOP (2H)"),
     },
     "browser": {
         "primary_click_swipe": ("browser_nav", None, "BACK/FORWARD"),
         "two_hand_swipe": ("browser_tab_switch", None, "TAB_SWITCH"),
+        "two_hand_swipe_vertical": ("zoom_inout", None, "ZOOM (2H)"),
+        "two_hand_pointing_up": ("new_tab", "key:ctrl+t", "NEW_TAB (2H)"),
+        "two_hand_closed_fist": ("close_tab", "key:ctrl+w", "CLOSE_TAB (2H)"),
     },
     "video_player": {
         "three_fingers_up": ("volume_step", None, "VOLUME_STEP"),
         "open_palm_horizontal": ("video_seek", None, "SEEK"),
+        "two_hand_swipe_vertical": ("media_seek", None, "MEDIA_SEEK (2H)"),
+        "two_hand_pointing_up": ("media_play_pause", "media_play_pause", "PLAY/PAUSE (2H)"),
+        "two_hand_closed_fist": ("media_stop", "media_stop", "STOP (2H)"),
     },
     "code_editor": {
         "two_finger_tap": ("right_click", "right_click", "CONTEXT_MENU"),
+        "two_hand_swipe": ("code_tab_switch", None, "EDITOR_TAB (2H)"),
+        "two_hand_swipe_vertical": ("zoom_inout", None, "ZOOM (2H)"),
+        "two_hand_pointing_up": ("new_file", "key:ctrl+n", "NEW_FILE (2H)"),
+        "two_hand_closed_fist": ("close_tab", "key:ctrl+w", "CLOSE_EDITOR (2H)"),
+    },
+    "document_editor": {
+        "open_palm_horizontal": ("page_nav", None, "PAGE_NAV"),
+        "two_hand_swipe_vertical": ("zoom_inout", None, "ZOOM (2H)"),
+        "two_hand_pointing_up": ("new_document", "key:ctrl+n", "NEW_DOC (2H)"),
+    },
+    "terminal": {
+        "two_finger_tap": ("right_click", "right_click", "PASTE"),
+        "two_hand_swipe": ("history_nav", None, "TERMINAL_HISTORY (2H)"),
+        "two_hand_pointing_up": ("new_terminal", "key:ctrl+shift+t", "NEW_TERMINAL (2H)"),
     },
 }
 

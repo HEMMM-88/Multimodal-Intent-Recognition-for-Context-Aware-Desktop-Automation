@@ -85,8 +85,15 @@ def _get_volume_interface():
     if not PYCAW_AVAILABLE:
         return None
     try:
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        device = AudioUtilities.GetSpeakers()
+        # pycaw >= 20230407 wraps the device in AudioDevice — use the
+        # .EndpointVolume property which calls Activate() internally.
+        # Older versions returned the COM interface directly, so we
+        # fall back to the legacy path if EndpointVolume isn't present.
+        if hasattr(device, "EndpointVolume"):
+            return device.EndpointVolume
+        # Legacy path: device is already the raw COM interface
+        interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
         volume = cast(interface, POINTER(IAudioEndpointVolume))
         return volume
     except Exception as e:
@@ -184,6 +191,10 @@ def execute_action(action: str):
                 pyautogui.scroll(5)
             case "scroll_down":
                 pyautogui.scroll(-5)
+            case "scroll_up_fast":
+                pyautogui.scroll(20)
+            case "scroll_down_fast":
+                pyautogui.scroll(-20)
 
             # ── Mouse ──
             case "click":

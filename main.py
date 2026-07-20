@@ -106,6 +106,17 @@ _CONTEXT_FALLBACK_TOKENS = {
 TWO_HAND_SWIPE_ACTIONS = {
     "window_switch": ("key:alt+tab", "key:alt+shift+tab", "NEXT_WINDOW", "PREV_WINDOW"),
     "browser_tab_switch": ("key:ctrl+tab", "key:ctrl+shift+tab", "NEXT_TAB", "PREV_TAB"),
+    "virtual_desktop_switch": ("key:ctrl+win+right", "key:ctrl+win+left", "NEXT_DESKTOP", "PREV_DESKTOP"),
+    "code_tab_switch": ("key:ctrl+tab", "key:ctrl+shift+tab", "NEXT_EDITOR", "PREV_EDITOR"),
+    "history_nav": ("key:alt+right", "key:alt+left", "FORWARD", "BACK"),
+}
+
+# Up/down key + label per two_hand_swipe_vertical intent name.
+TWO_HAND_SWIPE_VERTICAL_ACTIONS = {
+    "fast_scroll": ("scroll_up_fast", "scroll_down_fast", "FAST_SCROLL_UP", "FAST_SCROLL_DOWN"),
+    "zoom_inout": ("key:ctrl+=", "key:ctrl+-", "ZOOM_IN", "ZOOM_OUT"),
+    "slide_nav": ("key:pageup", "key:pagedown", "PREV_SLIDE", "NEXT_SLIDE"),
+    "media_seek": ("key:shift+right", "key:shift+left", "SEEK_FWD_LARGE", "SEEK_BACK_LARGE"),
 }
 
 
@@ -296,6 +307,8 @@ def run(config_path: str, no_overlay: bool = False):
     combo_debounce_seconds = float(control.get("combo_debounce_seconds", 0.35))
     two_hand_swipe_threshold = float(control.get("two_hand_swipe_threshold", 0.09))
     two_hand_swipe_debounce = float(control.get("two_hand_swipe_debounce_seconds", 0.6))
+    two_hand_swipe_vertical_threshold = float(control.get("two_hand_swipe_vertical_threshold", 0.09))
+    two_hand_swipe_vertical_debounce = float(control.get("two_hand_swipe_vertical_debounce_seconds", 0.6))
 
     logger.info("Starting Gesture Control | config=%s camera=%s", config_path, camera_idx)
 
@@ -343,6 +356,7 @@ def run(config_path: str, no_overlay: bool = False):
     scroll_last_active = 0.0
     open_palm_prev_x = None
     both_swipe_prev_x = None  # (primary_x, modifier_x) from the last frame both hands were open_palm
+    both_swipe_prev_y = None  # (primary_y, modifier_y) for vertical two-hand swipe
     lost_hand_since = None
 
     # Gesture stabilization state (filters short misclassifications).
@@ -431,11 +445,17 @@ def run(config_path: str, no_overlay: bool = False):
             if modifier_hand_lm is not None:
                 mod_gesture, mod_conf, mod_details = detect_gesture(modifier_hand_lm.landmark, return_details=True)
                 mod_palm_span = float(mod_details.get("palm_span", 0.0))
-                if mod_conf >= conf_threshold and mod_palm_span >= min_palm_span:
+                # Use a slightly relaxed threshold for the modifier hand — it's often
+                # held at an imperfect angle, and we only need to know it's present
+                # (for combos) or its rough pose (for two-hand swipes).
+                mod_conf_threshold = conf_threshold * 0.8
+                if mod_conf >= mod_conf_threshold and mod_palm_span >= min_palm_span * 0.8:
                     modifier_gesture = mod_gesture
                     mod_palm_center = mod_details.get("palm_center")
                     if mod_palm_center:
                         modifier_palm_x = mod_palm_center[0]
+            else:
+                mod_details = {}
 
             if primary_hand_lm is None:
                 # Neither label resolved to a hand (shouldn't normally happen) —
@@ -557,6 +577,77 @@ def run(config_path: str, no_overlay: bool = False):
                 else:
                     both_swipe_prev_x = None
 
+                # Two-hand vertical swipe: both hands open_palm moving up/down together
+                # => fast scroll, zoom, or slide nav depending on context.
+                # Separate debounce key from horizontal so both can fire independently.
+                if (
+                    two_hand_enabled
+                    and gesture == "open_palm"
+                    and modifier_gesture == "open_palm"
+                    and modifier_palm_x is not None
+                    and palm_center is not None
+                ):
+                    mod_palm_center_y = details.get("palm_center", (0, 0))[1]  # primary y
+                    mod_y = mod_details.get("palm_center", (0, 0))[1] if "mod_details" in dir() else None
+                    # Re-fetch modifier palm y from the details captured during modifier detection
+                    if both_swipe_prev_y is not None:
+                        prev_primary_y, prev_modifier_y = both_swipe_prev_y
+                        dy_primary = palm_center[1] - prev_primary_y
+                        dy_modifier = (modifier_palm_x - prev_modifier_y) if both_swipe_prev_y else 0
+                        # Use palm_center y from details for both hands
+                        primary_y_now = palm_center[1]
+                        modifier_y_now = mod_details.get("palm_center", (0, 0))[1]
+                        dy_primary = primary_y_now - prev_primary_y
+                        dy_modifier = modifier_y_now - prev_modifier_y
+                        if (
+                            abs(dy_primary) >= two_hand_swipe_vertical_threshold
+                            and abs(dy_modifier) >= two_hand_swipe_vertical_threshold
+                            and (dy_primary > 0) == (dy_modifier > 0)
+                            and abs(dy_primary) > abs(palm_center[0] - both_swipe_prev_x[0]) * 1.2  # more vertical than horizontal
+                            and _debounced("two_hand_swipe_v", debounce_clock, two_hand_swipe_vertical_debounce, now)
+                        ):
+                            vert_intent = classify_intent("two_hand_swipe_vertical", app_context)
+                            if vert_intent.name in TWO_HAND_SWIPE_VERTICAL_ACTIONS:
+                                up_action, down_action, up_label, down_label = TWO_HAND_SWIPE_VERTICAL_ACTIONS[vert_intent.name]
+                                execute_action(up_action if dy_primary < 0 else down_action)
+                                display_action = up_label if dy_primary < 0 else down_label
+                    both_swipe_prev_y = (palm_center[1], mod_details.get("palm_center", (0, 0))[1])
+
+                # Two-hand pointing_up: both hands index pointing up => open new window/tab
+                # Fires once on detection (stable for gesture_stability_seconds).
+                if (
+                    two_hand_enabled
+                    and gesture == "pointing_up"
+                    and modifier_gesture == "pointing_up"
+                    and _debounced("two_hand_pointing", debounce_clock, 1.2, now)
+                ):
+                    new_win_intent = classify_intent("two_hand_pointing_up", app_context)
+                    if new_win_intent.action:
+                        execute_action(new_win_intent.action)
+                        display_action = new_win_intent.label
+
+                # Two-hand closed_fist: both hands fisted => show desktop / lock shortcut
+                if (
+                    two_hand_enabled
+                    and gesture == "closed_fist"
+                    and modifier_gesture == "closed_fist"
+                    and _debounced("two_hand_fist", debounce_clock, 1.5, now)
+                ):
+                    fist_intent = classify_intent("two_hand_closed_fist", app_context)
+                    if fist_intent.action:
+                        execute_action(fist_intent.action)
+                        display_action = fist_intent.label
+
+                # Two-hand screenshot: modifier three_fingers_up + primary open_palm => screenshot
+                if (
+                    two_hand_enabled
+                    and gesture == "open_palm"
+                    and modifier_gesture == "three_fingers_up"
+                    and _debounced("two_hand_screenshot", debounce_clock, 1.5, now)
+                ):
+                    execute_action("screenshot")
+                    display_action = "SCREENSHOT (2H)"
+
                 # 2 + 3) Primary click gesture => click(hold) / drag(hold longer)
                 if gesture == primary_click_gesture and pointer_norm:
                     pinch_last_seen = now
@@ -627,18 +718,18 @@ def run(config_path: str, no_overlay: bool = False):
                         pinch_start_x = None
 
                 # Two-hand combo resolution: raising the modifier hand (any pose)
-                # while doing thumbs_up/thumbs_down switches them from volume to
-                # redo/undo. Only these two gestures are combo-eligible — continuous
-                # control, right-click, and the closed_fist pause toggle always behave
+                # while doing certain primary gestures switches their meaning.
+                # Expanded from original thumbs only to include two_finger_tap and three_fingers_up.
+                # Continuous control and closed_fist pause toggle always behave
                 # the same regardless of the second hand (see combo_rules in
                 # config.yaml for the reasoning: fewer poses to get right).
                 combo_intent = (
                     classify_combo(modifier_hand_lm is not None, gesture, app_context)
-                    if two_hand_enabled and gesture in ("thumbs_up", "thumbs_down")
+                    if two_hand_enabled and gesture in ("thumbs_up", "thumbs_down", "two_finger_tap", "three_fingers_up")
                     else None
                 )
 
-                # 4) Two-finger tap => right click (stable 150ms)
+                # 4) Two-finger tap => right click (stable 150ms), or combo action if modifier present
                 if gesture == "two_finger_tap":
                     if two_finger_start is None:
                         two_finger_start = now
@@ -648,42 +739,51 @@ def run(config_path: str, no_overlay: bool = False):
                         and now - two_finger_start >= two_finger_stable
                         and _debounced("right_click", debounce_clock, debounce_seconds, now)
                     ):
-                        intent = classify_intent("two_finger_tap", app_context)
-                        execute_action(intent.action)
-                        display_action = intent.label
+                        if combo_intent is not None:
+                            execute_action(combo_intent.action)
+                            display_action = combo_intent.label
+                        else:
+                            intent = classify_intent("two_finger_tap", app_context)
+                            execute_action(intent.action)
+                            display_action = intent.label
                         two_finger_fired = True
                 else:
                     two_finger_start = None
                     two_finger_fired = False
 
-                # 5) Three-fingers up => scroll mode
+                # 5) Three-fingers up => scroll mode (or combo action if modifier present)
                 if gesture == "three_fingers_up" and palm_center:
-                    if not scroll_mode:
-                        scroll_mode = True
-                        scroll_prev_y = palm_center[1]
-                    scroll_last_active = now
+                    # Combo: modifier hand present + three_fingers_up => fire once, skip scroll
+                    if combo_intent is not None and _debounced("three_finger_combo", debounce_clock, combo_debounce_seconds, now):
+                        execute_action(combo_intent.action)
+                        display_action = combo_intent.label
+                    else:
+                        if not scroll_mode:
+                            scroll_mode = True
+                            scroll_prev_y = palm_center[1]
+                        scroll_last_active = now
 
-                    if scroll_prev_y is not None:
-                        dy = palm_center[1] - scroll_prev_y
-                        if abs(dy) >= scroll_motion_threshold:
-                            three_finger_intent = classify_intent("three_fingers_up", app_context)
-                            if three_finger_intent.name == "volume_step":
-                                if _debounced("volume_step", debounce_clock, 0.08, now):
-                                    execute_action("volume_down" if dy > 0 else "volume_up")
-                                    display_action = "VOLUME_DOWN" if dy > 0 else "VOLUME_UP"
-                            else:
-                                # Scroll speed per context is a magnitude table, not a branching
-                                # decision, so it stays a direct lookup rather than routing
-                                # through the classifier.
-                                scale = (
-                                    browser_scroll_scale if app_context == "browser"
-                                    else code_scroll_scale if app_context == "code_editor"
-                                    else default_scroll_scale
-                                )
-                                pyautogui.scroll(int(-dy * scale))
-                                display_action = three_finger_intent.label
-                            scroll_last_active = now
-                        scroll_prev_y = palm_center[1]
+                        if scroll_prev_y is not None:
+                            dy = palm_center[1] - scroll_prev_y
+                            if abs(dy) >= scroll_motion_threshold:
+                                three_finger_intent = classify_intent("three_fingers_up", app_context)
+                                if three_finger_intent.name == "volume_step":
+                                    if _debounced("volume_step", debounce_clock, 0.08, now):
+                                        execute_action("volume_down" if dy > 0 else "volume_up")
+                                        display_action = "VOLUME_DOWN" if dy > 0 else "VOLUME_UP"
+                                else:
+                                    # Scroll speed per context is a magnitude table, not a branching
+                                    # decision, so it stays a direct lookup rather than routing
+                                    # through the classifier.
+                                    scale = (
+                                        browser_scroll_scale if app_context == "browser"
+                                        else code_scroll_scale if app_context == "code_editor"
+                                        else default_scroll_scale
+                                    )
+                                    pyautogui.scroll(int(-dy * scale))
+                                    display_action = three_finger_intent.label
+                                scroll_last_active = now
+                            scroll_prev_y = palm_center[1]
                 else:
                     if scroll_mode and now - scroll_last_active > scroll_inactivity_timeout:
                         scroll_mode = False

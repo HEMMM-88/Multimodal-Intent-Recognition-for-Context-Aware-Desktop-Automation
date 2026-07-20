@@ -55,6 +55,8 @@ settings:
     # Two-hand swipe (both hands open_palm, moving together) => window/tab switch
     two_hand_swipe_threshold: 0.09        # per-hand horizontal motion required (normalized 0-1)
     two_hand_swipe_debounce_seconds: 0.6
+    two_hand_swipe_vertical_threshold: 0.09   # per-hand vertical motion required (normalized 0-1)
+    two_hand_swipe_vertical_debounce_seconds: 0.55
     default_scroll_scale: 1000.0
 
   # Virtual mouse smoothing
