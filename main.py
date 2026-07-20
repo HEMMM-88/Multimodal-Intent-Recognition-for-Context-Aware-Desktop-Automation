@@ -626,33 +626,32 @@ def run(config_path: str, no_overlay: bool = False):
                         pinch_swipe_done = False
                         pinch_start_x = None
 
-                # Two-hand combo resolution: a held pose on the modifier hand changes
-                # what a fire-once primary-hand gesture does. Only consulted for the
-                # three gestures below — continuous control (cursor/scroll/drag) and
-                # the closed_fist pause toggle are never combo targets (see the
-                # combo_rules comment block in config.yaml for the reasoning).
+                # Two-hand combo resolution: raising the modifier hand (any pose)
+                # while doing thumbs_up/thumbs_down switches them from volume to
+                # redo/undo. Only these two gestures are combo-eligible — continuous
+                # control, right-click, and the closed_fist pause toggle always behave
+                # the same regardless of the second hand (see combo_rules in
+                # config.yaml for the reasoning: fewer poses to get right).
                 combo_intent = (
-                    classify_combo(modifier_gesture, gesture, app_context)
-                    if two_hand_enabled and gesture in ("two_finger_tap", "thumbs_up", "thumbs_down")
+                    classify_combo(modifier_hand_lm is not None, gesture, app_context)
+                    if two_hand_enabled and gesture in ("thumbs_up", "thumbs_down")
                     else None
                 )
 
-                # 4) Two-finger tap => right click (stable 150ms), or a combo action
+                # 4) Two-finger tap => right click (stable 150ms)
                 if gesture == "two_finger_tap":
                     if two_finger_start is None:
                         two_finger_start = now
                         two_finger_fired = False
-                    if not two_finger_fired and now - two_finger_start >= two_finger_stable:
-                        if combo_intent is not None:
-                            if _debounced("right_click_combo", debounce_clock, combo_debounce_seconds, now):
-                                execute_action(combo_intent.action)
-                                display_action = combo_intent.label
-                                two_finger_fired = True
-                        elif _debounced("right_click", debounce_clock, debounce_seconds, now):
-                            intent = classify_intent("two_finger_tap", app_context)
-                            execute_action(intent.action)
-                            display_action = intent.label
-                            two_finger_fired = True
+                    if (
+                        not two_finger_fired
+                        and now - two_finger_start >= two_finger_stable
+                        and _debounced("right_click", debounce_clock, debounce_seconds, now)
+                    ):
+                        intent = classify_intent("two_finger_tap", app_context)
+                        execute_action(intent.action)
+                        display_action = intent.label
+                        two_finger_fired = True
                 else:
                     two_finger_start = None
                     two_finger_fired = False

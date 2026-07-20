@@ -123,22 +123,23 @@ def load_rules_from_config(config: dict) -> int:
 
 
 # ── Two-hand combo rules ────────────────────────────────────────────────────
-# context -> modifier_gesture -> primary_gesture -> (intent_name, action, label)
-# Empty by default; populated entirely from config.yaml's `combo_rules:` via
-# load_combo_rules_from_config(). Kept as a separate table from RULES rather
-# than merged in, since combos are keyed on a (modifier, primary) pair, not
-# a single gesture — conflating the two shapes would make both harder to read.
-COMBO_RULES: dict[str, dict[str, dict[str, tuple[str, str | None, str]]]] = {}
+# context -> primary_gesture -> (intent_name, action, label)
+#
+# Deliberately simple: a combo fires whenever a second hand is present at
+# all (any pose) while the primary hand does one of the eligible gestures —
+# there's no modifier-hand pose to get right. This was originally keyed on
+# (modifier_pose, primary_gesture) pairs, but that asked people to remember
+# which pose meant what, which is exactly the kind of thing that's easy to
+# get right in a spec and hard to actually do in front of a webcam. "Is my
+# other hand up or not" is a much lower bar.
+COMBO_RULES: dict[str, dict[str, tuple[str, str | None, str]]] = {}
 
 
 def register_combo_rule(
-    context: str, modifier_gesture: str, primary_gesture: str,
-    intent_name: str, action: str | None, label: str,
+    context: str, primary_gesture: str, intent_name: str, action: str | None, label: str,
 ) -> None:
     """Runtime hook mirroring register_rule(), for combo entries."""
-    COMBO_RULES.setdefault(context, {}).setdefault(modifier_gesture, {})[primary_gesture] = (
-        intent_name, action, label,
-    )
+    COMBO_RULES.setdefault(context, {})[primary_gesture] = (intent_name, action, label)
 
 
 def load_combo_rules_from_config(config: dict) -> int:
@@ -156,54 +157,48 @@ def load_combo_rules_from_config(config: dict) -> int:
         return 0
 
     loaded = 0
-    for context, modifiers in combo_rules.items():
-        if not isinstance(modifiers, dict):
+    for context, gestures in combo_rules.items():
+        if not isinstance(gestures, dict):
             logger.warning("combo_rules.%s is not a mapping — skipped.", context)
             continue
-        for modifier_gesture, primaries in modifiers.items():
-            if not isinstance(primaries, dict):
-                logger.warning("combo_rules.%s.%s is not a mapping — skipped.", context, modifier_gesture)
-                continue
-            for primary_gesture, spec in primaries.items():
-                if not isinstance(spec, dict) or "intent" not in spec or "label" not in spec:
-                    logger.warning(
-                        "combo_rules.%s.%s.%s missing required 'intent'/'label' — skipped.",
-                        context, modifier_gesture, primary_gesture,
-                    )
-                    continue
-                register_combo_rule(
-                    context=context,
-                    modifier_gesture=modifier_gesture,
-                    primary_gesture=primary_gesture,
-                    intent_name=spec["intent"],
-                    action=spec.get("action"),
-                    label=spec["label"],
+        for primary_gesture, spec in gestures.items():
+            if not isinstance(spec, dict) or "intent" not in spec or "label" not in spec:
+                logger.warning(
+                    "combo_rules.%s.%s missing required 'intent'/'label' — skipped.",
+                    context, primary_gesture,
                 )
-                loaded += 1
+                continue
+            register_combo_rule(
+                context=context,
+                primary_gesture=primary_gesture,
+                intent_name=spec["intent"],
+                action=spec.get("action"),
+                label=spec["label"],
+            )
+            loaded += 1
 
     logger.info("Loaded %d combo rule(s) from config.yaml.", loaded)
     return loaded
 
 
-def classify_combo(modifier_gesture: str | None, primary_gesture: str, context: str) -> Intent | None:
+def classify_combo(second_hand_present: bool, primary_gesture: str, context: str) -> Intent | None:
     """
     Resolve a two-hand combo, or return None if no combo rule applies —
     callers should fall through to the normal single-hand classify() path
     when this returns None, rather than treating it as a no-op intent.
 
-    Unlike classify(), a missing context does NOT fall back to "default"
-    silently mixed with the given context; it falls back to "default"
-    combos only, same pattern as context_rules.
+    second_hand_present just means "a second hand is visible", regardless
+    of what pose it's holding — see the COMBO_RULES comment for why.
     """
-    if not modifier_gesture or modifier_gesture == "none":
+    if not second_hand_present:
         return None
 
     context_combos = COMBO_RULES.get(context, {})
     default_combos = COMBO_RULES.get(DEFAULT_CONTEXT, {})
 
-    modifier_rules = context_combos.get(modifier_gesture) or default_combos.get(modifier_gesture)
-    if not modifier_rules or primary_gesture not in modifier_rules:
+    entry = context_combos.get(primary_gesture) or default_combos.get(primary_gesture)
+    if not entry:
         return None
 
-    name, action, label = modifier_rules[primary_gesture]
+    name, action, label = entry
     return Intent(name=name, action=action, label=label, context=context)
