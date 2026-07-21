@@ -11,34 +11,34 @@
 
 settings:
   camera_index: 0
-  detection_confidence: 0.62
-  tracking_confidence: 0.62
+  detection_confidence: 0.50    # lowered from 0.62 — MediaPipe picks up hands further away
+  tracking_confidence: 0.50     # lowered from 0.62 — keeps tracking stable at distance
   show_overlay: true
   startup_delay: 1.0
   app_refresh_seconds: 0.2
 
   # Gesture stability and debounce controls
   control:
-    gesture_confidence_threshold: 0.7
-    gesture_stability_seconds: 0.08
-    min_palm_span: 0.05
-    debounce_seconds: 0.25
-    pause_toggle_debounce: 0.8
+    gesture_confidence_threshold: 0.52   # relaxed — works with loose natural hand poses
+    gesture_stability_seconds: 0.06      # faster response, less time holding a pose
+    min_palm_span: 0.03
+    debounce_seconds: 0.20               # faster click response
+    pause_toggle_debounce: 0.7
 
     primary_click_gesture: pointing_up
-    pinch_click_hold_seconds: 0.12
-    pinch_drag_hold_seconds: 0.45
-    pinch_break_grace_seconds: 0.12
-    drag_release_grace_seconds: 0.18
-    two_finger_tap_stable_seconds: 0.15
+    pinch_click_hold_seconds: 0.08       # was 0.12 — lighter tap needed
+    pinch_drag_hold_seconds: 0.35        # was 0.45 — shorter hold to start drag
+    pinch_break_grace_seconds: 0.15      # was 0.12 — more forgiveness if finger relaxes
+    drag_release_grace_seconds: 0.20
+    two_finger_tap_stable_seconds: 0.10  # was 0.15 — fires quicker, less finger tension
 
-    scroll_mode_inactivity_seconds: 1.0
-    scroll_motion_threshold: 0.01
+    scroll_mode_inactivity_seconds: 1.2  # slightly longer so scroll doesn't cut off mid-gesture
+    scroll_motion_threshold: 0.008       # was 0.01 — smaller movement triggers scroll
 
-    browser_pinch_swipe_threshold: 0.12
-    video_seek_horizontal_threshold: 0.06
-    video_seek_debounce_seconds: 0.35
-    volume_step_debounce_seconds: 0.22
+    browser_pinch_swipe_threshold: 0.10
+    video_seek_horizontal_threshold: 0.05
+    video_seek_debounce_seconds: 0.30
+    volume_step_debounce_seconds: 0.18   # was 0.22 — snappier volume response
 
     # Context-specific scroll tuning
     browser_scroll_scale: 1400.0
@@ -61,9 +61,9 @@ settings:
 
   # Virtual mouse smoothing
   mouse_control:
-    ema_alpha: 0.3
-    drag_ema_alpha: 0.22
-    deadzone_px: 1.3
+    ema_alpha: 0.45          # was 0.3 — more responsive, less arm movement needed
+    drag_ema_alpha: 0.28     # was 0.22 — snappier drag
+    deadzone_px: 1.0         # small deadzone so tiny movements still register
 
     # Keep these for flexible orientation handling
     reverse_horizontal_motion: false

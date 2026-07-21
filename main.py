@@ -330,7 +330,7 @@ def run(config_path: str, no_overlay: bool = False):
     hands = mp_hands.Hands(
         static_image_mode=False,
         max_num_hands=2,
-        model_complexity=0,  # lower compute for better FPS stability
+        model_complexity=1,  # higher accuracy, still real-time capable
         min_detection_confidence=det_conf,
         min_tracking_confidence=track_conf,
     )
@@ -468,8 +468,10 @@ def run(config_path: str, no_overlay: bool = False):
 
             palm_span = float(details.get("palm_span", 0.0))
             size_conf = float(details.get("size_conf", 1.0))
-            # Lower confidence requirement for farther hands while keeping a safe floor.
-            effective_conf_threshold = conf_threshold * max(0.62, size_conf)
+            # Lower confidence requirement for farther hands.
+            # size_conf already scales down at distance, so we floor the multiplier
+            # lower (0.50) to allow detection at arm's length + beyond.
+            effective_conf_threshold = conf_threshold * max(0.50, size_conf)
             if confidence < effective_conf_threshold or palm_span < min_palm_span:
                 raw_gesture = "none"
                 confidence = 0.0
