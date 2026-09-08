@@ -140,11 +140,15 @@ def _mute_toggle():
 # ── Screenshot helper ────────────────────────────────────────────────────────
 
 def _take_screenshot():
+    """Save a timestamped screenshot to the project folder (same dir as this file)."""
+    from pathlib import Path
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    path = f"screenshot_{timestamp}.png"
+    screenshots_dir = Path(__file__).resolve().parent / "screenshots"
+    screenshots_dir.mkdir(exist_ok=True)
+    path = screenshots_dir / f"screenshot_{timestamp}.png"
     if PYAUTOGUI_AVAILABLE:
         img = pyautogui.screenshot()
-        img.save(path)
+        img.save(str(path))
         logger.info(f"Screenshot saved: {path}")
 
 

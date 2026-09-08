@@ -11,17 +11,42 @@
 
 settings:
   camera_index: 0
-  detection_confidence: 0.50    # lowered from 0.62 — MediaPipe picks up hands further away
-  tracking_confidence: 0.50     # lowered from 0.62 — keeps tracking stable at distance
+
+  # ── Long-range detection ───────────────────────────────────────────────
+  # Drop both thresholds as low as MediaPipe allows so it attempts detection
+  # even when the hand occupies only a small region of the frame.
+  detection_confidence: 0.30    # lowered for long-range — hand appears small in frame
+  tracking_confidence: 0.30     # lowered to keep tracking once the hand is found
+
+  # Higher capture resolution gives MediaPipe more pixels to work with at
+  # long range. 1280x720 is a good balance; use 1920x1080 if your webcam
+  # supports it and CPU headroom allows.
+  capture_width: 1280
+  capture_height: 720
+  capture_fps: 30
+
+  # Upscale the frame before handing it to MediaPipe when extra resolution
+  # beyond what the camera delivers is needed. 1.0 = no upscale (default).
+  # 1.5 helps on 640x480 webcams — trades a bit of CPU for noticeably better
+  # small-hand detection. Do not go above 2.0.
+  detection_upscale: 1.5
+
   show_overlay: true
   startup_delay: 1.0
   app_refresh_seconds: 0.2
 
+  # ── Gesture event logging ─────────────────────────────────────────────
+  # When enabled, every gesture classification decision is written to a
+  # timestamped CSV in the logs/ subfolder. Use this to analyse session
+  # accuracy, false-positive rates, and action hit rates.
+  logging:
+    gesture_csv_enabled: true
+
   # Gesture stability and debounce controls
   control:
-    gesture_confidence_threshold: 0.52   # relaxed — works with loose natural hand poses
+    gesture_confidence_threshold: 0.38   # relaxed further for long-range small hands
     gesture_stability_seconds: 0.06      # faster response, less time holding a pose
-    min_palm_span: 0.03
+    min_palm_span: 0.012                 # was 0.03 — allows detection of very distant hands
     debounce_seconds: 0.20               # faster click response
     pause_toggle_debounce: 0.7
 
@@ -47,10 +72,19 @@ settings:
     # Two-hand combo gestures
     two_hand_enabled: true
     primary_hand: "Right"        # this hand drives the cursor + all single-hand gestures
-    swap_handedness: false       # MediaPipe's Left/Right can come out mirrored depending on
-                                  # camera setup — the overlay shows detected hand labels live;
-                                  # if your right hand shows as "Left" on screen, set this true
+    swap_handedness: false       # FIX-7: handedness is now resolved by wrist X position so
+                                  # this is rarely needed. Only set true if position-based
+                                  # assignment still comes out backwards for your setup.
     combo_debounce_seconds: 0.35
+
+    # FIX-1: How long the modifier hand must be held before combos / swipes
+    # activate. Prevents a casually resting second hand from triggering things.
+    modifier_entry_seconds: 0.20
+
+    # FIX-8: Both hands must be visible for this many consecutive frames before
+    # two-hand swipe detection starts. Prevents accidental swipes as hands
+    # enter or leave the camera frame.
+    two_hand_settle_frames: 4
 
     # Two-hand swipe (both hands open_palm, moving together) => window/tab switch
     two_hand_swipe_threshold: 0.09        # per-hand horizontal motion required (normalized 0-1)

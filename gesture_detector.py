@@ -49,11 +49,14 @@ def _finger_states(landmarks) -> dict:
         # Primary: tip above pip (relaxed — tip just needs to be higher, not strictly)
         tip_above_pip = tip.y < pip.y
 
-        # Secondary: loose extension check — 0.72 margin means slightly curled fingers
-        # still register as 'up'. Much less strain than requiring full extension.
+        # Secondary: loose extension check.
+        # At long range the landmark coordinates are noisier and slightly
+        # compressed, so we drop the ratio to 0.62 (was 0.72). A finger
+        # only needs to be ~60% as extended as its MCP–PIP segment to count
+        # as "up" — much less strain, and still rejects a clearly closed fist.
         tip_mcp_dist = math.sqrt((tip.x - mcp.x)**2 + (tip.y - mcp.y)**2)
         pip_mcp_dist = math.sqrt((pip.x - mcp.x)**2 + (pip.y - mcp.y)**2)
-        tip_extended = tip_mcp_dist > pip_mcp_dist * 0.72
+        tip_extended = tip_mcp_dist > pip_mcp_dist * 0.62
 
         fingers[name] = tip_above_pip and tip_extended
 
@@ -86,16 +89,44 @@ def detect_gesture(landmarks, return_details: bool = False):
     two_finger_dist = _dist(landmarks[8], landmarks[12])
     palm_span = _dist(landmarks[5], landmarks[17])  # robust hand-size proxy
 
-    # Adaptive thresholds improve reliability across camera distance.
-    # At long range the hand is smaller so palm_span is lower — scale more aggressively
-    # to keep pinch/two-finger detection working from further away.
-    pinch_threshold = max(0.025, min(0.12, palm_span * 0.65))
-    two_finger_threshold = max(0.018, min(0.09, palm_span * 0.55))
+    # ── Long-range adaptive thresholds ────────────────────────────────────
+    # palm_span shrinks proportionally with distance.  All thresholds below
+    # scale with palm_span so detection stays reliable whether the hand is
+    # 30 cm or 3 m from the lens.
+    #
+    # Typical palm_span values (normalised 0-1 in a 1280×720 frame):
+    #   ~0.20   very close  (arm fully extended toward camera)
+    #   ~0.10   normal desk distance (~60 cm)
+    #   ~0.04   far         (~1.5 m)
+    #   ~0.015  very far    (~3 m, outer detection limit)
+    #
+    # The floor values (first arg to max()) are the minimum span that still
+    # makes geometric sense; the ceil values (second arg to min()) cap the
+    # threshold so close-up hands don't trigger on coarse movements.
 
-    # Keep confidence usable even for farther/smaller hands.
-    # Extended range: palm_span as low as 0.02 (very far) still gets 0.2 confidence,
-    # allowing detection at 2-3x the previous distance.
-    size_conf = max(0.2, min(1.0, (palm_span - 0.015) / 0.12))
+    # Pinch: thumb tip ↔ index tip must be closer than this to count.
+    # Scale factor 0.72 (was 0.65) accepts a slightly wider gap — at long
+    # range finger tips blur together and the gap overestimates.
+    pinch_threshold = max(0.010, min(0.14, palm_span * 0.72))
+
+    # Two-finger tap: index tip ↔ middle tip distance.
+    two_finger_threshold = max(0.008, min(0.10, palm_span * 0.60))
+
+    # ── Long-range size confidence ─────────────────────────────────────────
+    # Maps palm_span to a [0, 1] confidence multiplier.
+    #
+    # Old formula: (palm_span - 0.015) / 0.12  → floor 0.20
+    #   – At palm_span=0.04 (1.5 m) this gave only (0.04-0.015)/0.12 ≈ 0.21
+    #   – At palm_span=0.015 (3 m) this hit the floor of 0.20
+    #
+    # New formula: (palm_span - 0.006) / 0.09  → floor 0.10
+    #   – At palm_span=0.015 (3 m) → (0.015-0.006)/0.09 ≈ 0.10 (still usable)
+    #   – At palm_span=0.04  (1.5m) → (0.040-0.006)/0.09 ≈ 0.38
+    #   – At palm_span=0.10  (60cm) → (0.100-0.006)/0.09 ≈ 1.00 (capped)
+    #
+    # The lower floor (0.10 vs 0.20) lets very distant hands get through the
+    # confidence gate when the threshold is also relaxed in config.yaml.
+    size_conf = max(0.10, min(1.0, (palm_span - 0.006) / 0.09))
     pinch_conf = max(0.0, 1.0 - (pinch_dist / pinch_threshold)) * size_conf
     two_finger_conf = max(0.0, 1.0 - (two_finger_dist / two_finger_threshold)) * size_conf
 
@@ -120,8 +151,9 @@ def detect_gesture(landmarks, return_details: bool = False):
         thumb_tip_y = landmarks[4].y
         thumb_mcp_y = landmarks[2].y
         thumb_vertical_diff = thumb_mcp_y - thumb_tip_y
-        # Scale margin with hand size so it works at any distance
-        margin = max(0.012, palm_span * 0.10)
+        # Scale margin with hand size. Lower floor (0.006 was 0.012) so
+        # thumbs_up/down still fires at long range where the hand is tiny.
+        margin = max(0.006, palm_span * 0.10)
         if thumb_vertical_diff > margin:
             gesture = "thumbs_up"
         elif thumb_vertical_diff < -margin:
