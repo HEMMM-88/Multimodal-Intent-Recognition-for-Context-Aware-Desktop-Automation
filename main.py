@@ -113,6 +113,10 @@ def _debounced(name: str, clock: dict[str, float], interval: float, now: float) 
 
 
 def _classify_context(app_key: str | None, title: str, proc: str) -> str:
+    # YouTube in a browser tab — title contains "YouTube" but app_key is "browser".
+    # Check this first so it lands in video_player, not browser.
+    if "youtube" in title.lower():
+        return "video_player"
     if app_key in _CONTEXT_FALLBACK_TOKENS:
         return app_key
     text = f"{title} {proc}".lower()
@@ -495,7 +499,23 @@ def run(config_path: str, no_overlay: bool = False, skip_validation: bool = Fals
 
                 combo_ready = modifier_active and gesture in _COMBO_ELIGIBLE
 
-                if gesture == "closed_fist" and _debounced("pause_toggle", debounce_clock, pause_toggle_debounce, now):
+                # Two-hand closed_fist must be checked BEFORE the single-hand
+                # pause toggle so it doesn't get swallowed. Only fires when
+                # modifier is active (held long enough).
+                two_hand_fist_fired = False
+                if (two_hand_enabled and modifier_active
+                        and gesture == "closed_fist" and modifier_gesture == "closed_fist"
+                        and _debounced("two_hand_fist", debounce_clock, 1.5, now)):
+                    fi = classify_intent("two_hand_closed_fist", app_context)
+                    if fi.action:
+                        execute_action(fi.action)
+                        display_action = fi.label
+                        two_hand_fist_fired = True
+
+                # Single-hand pause toggle — skip if two-hand fist already fired.
+                if (not two_hand_fist_fired
+                        and gesture == "closed_fist"
+                        and _debounced("pause_toggle", debounce_clock, pause_toggle_debounce, now)):
                     paused = not paused
                     display_action = "PAUSED" if paused else "RESUMED"
                     if dragging:
@@ -594,14 +614,6 @@ def run(config_path: str, no_overlay: bool = False, skip_validation: bool = Fals
                         if ni.action:
                             execute_action(ni.action)
                             display_action = ni.label
-
-                    if (two_hand_enabled and modifier_active
-                            and gesture == "closed_fist" and modifier_gesture == "closed_fist"
-                            and _debounced("two_hand_fist", debounce_clock, 1.5, now)):
-                        fi = classify_intent("two_hand_closed_fist", app_context)
-                        if fi.action:
-                            execute_action(fi.action)
-                            display_action = fi.label
 
                     if (two_hand_enabled and modifier_active
                             and gesture == "open_palm" and modifier_gesture == "three_fingers_up"

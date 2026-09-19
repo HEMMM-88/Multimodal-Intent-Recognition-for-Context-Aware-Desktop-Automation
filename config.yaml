@@ -121,10 +121,13 @@ apps:
   video_player:
     window_titles:
       - "YouTube"
+      - "- YouTube"
       - "VLC media player"
       - "Media Player"
       - "Movies & TV"
       - "Netflix"
+      - "Prime Video"
+      - "Disney+"
 
   code_editor:
     window_titles:
@@ -200,6 +203,10 @@ combo_rules:
       intent: fullscreen_toggle
       action: "key:f"
       label: "FULLSCREEN VIDEO (2H)"
+    thumbs_down:
+      intent: minimize_window
+      action: "key:win+down"
+      label: "MINIMIZE (2H)"
 
 # Context-aware intent rules — no code changes needed to retune behavior.
 # Each entry: context -> gesture (or synthetic trigger) -> {intent, action, label}
