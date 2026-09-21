@@ -37,8 +37,6 @@ RULES: dict[str, dict[str, tuple[str, str | None, str]]] = {
     "video_player": {
         "three_fingers_up":         ("volume_step",     None,               "VOLUME_STEP"),
         "open_palm_horizontal":     ("video_seek",      None,               "SEEK"),
-        "primary_click_swipe":      ("video_sneak_seek",None,               "SNEAK_SEEK"),
-        "two_hand_swipe_vertical":  ("media_seek",      None,               "MEDIA_SEEK (2H)"),
         "two_hand_pointing_up":     ("media_play_pause","media_play_pause", "PLAY/PAUSE (2H)"),
         "two_hand_closed_fist":     ("media_stop",      "media_stop",       "STOP (2H)"),
     },

@@ -621,22 +621,6 @@ def run(config_path: str, no_overlay: bool = False, skip_validation: bool = Fals
                         execute_action("screenshot")
                         display_action = "SCREENSHOT (2H)"
 
-                    # Two-hand sneak seek: primary open_palm + modifier pinch.
-                    # Swipe left/right together for precise ±10s steps in video context.
-                    # Uses the same J/L keys as the single-hand pinch swipe.
-                    if (two_hand_enabled and modifier_active
-                            and app_context == "video_player"
-                            and gesture == "open_palm" and modifier_gesture == "pinch"
-                            and palm_center is not None):
-                        if both_swipe_prev_x is not None:
-                            dx_p = palm_center[0] - both_swipe_prev_x[0]
-                            sneak_threshold = float(control.get("video_sneak_seek_threshold", 0.06))
-                            sneak_debounce  = float(control.get("video_sneak_seek_debounce_seconds", 0.25))
-                            if abs(dx_p) >= sneak_threshold and _debounced("two_hand_sneak", debounce_clock, sneak_debounce, now):
-                                execute_action("key:l" if dx_p > 0 else "key:j")
-                                display_action = "SNEAK_FWD +10s (2H)" if dx_p > 0 else "SNEAK_BACK -10s (2H)"
-                        both_swipe_prev_x = (palm_center[0], modifier_palm_x if modifier_palm_x else palm_center[0])
-
                     if gesture == primary_click_gesture and pointer_norm:
                         pinch_last_seen = now
                         ema_pos = _move_cursor_ema(pointer_norm, screen_size, ema_pos,
@@ -652,11 +636,8 @@ def run(config_path: str, no_overlay: bool = False, skip_validation: bool = Fals
                         if hold_time >= pinch_click_hold:
                             pinch_armed_click = True
 
-                        # Resolve what pinch-swipe means in this context.
-                        pinch_swipe_intent = classify_intent("primary_click_swipe", app_context).name
-
-                        # Browser: back/forward navigation
-                        if (pinch_swipe_intent == "browser_nav"
+                        # Browser: pinch swipe = back/forward navigation
+                        if (classify_intent("primary_click_swipe", app_context).name == "browser_nav"
                                 and primary_click_gesture == "pinch"
                                 and not pinch_swipe_done and pinch_start_x is not None):
                             dx = pointer_norm[0] - pinch_start_x
@@ -664,21 +645,6 @@ def run(config_path: str, no_overlay: bool = False, skip_validation: bool = Fals
                                 execute_action("key:alt+right" if dx > 0 else "key:alt+left")
                                 display_action   = "FORWARD" if dx > 0 else "BACK"
                                 pinch_swipe_done = True
-
-                        # Video: sneak seek — small precise steps (J/L on YouTube = ±10s,
-                        # arrow keys work in VLC/most players for ±5s steps).
-                        elif (pinch_swipe_intent == "video_sneak_seek"
-                                and not pinch_swipe_done and pinch_start_x is not None):
-                            dx = pointer_norm[0] - pinch_start_x
-                            sneak_threshold = float(control.get("video_sneak_seek_threshold", 0.06))
-                            sneak_debounce  = float(control.get("video_sneak_seek_debounce_seconds", 0.25))
-                            if abs(dx) >= sneak_threshold and _debounced("sneak_seek", debounce_clock, sneak_debounce, now):
-                                # L = +10s, J = -10s on YouTube; right/left = ±5s in most players
-                                execute_action("key:l" if dx > 0 else "key:j")
-                                display_action = "SNEAK_FWD +10s" if dx > 0 else "SNEAK_BACK -10s"
-                                # Don't set pinch_swipe_done — allow repeated sneak steps
-                                # by updating the reference point instead.
-                                pinch_start_x = pointer_norm[0]
 
                         if hold_time >= pinch_drag_hold and not dragging and not pinch_swipe_done:
                             pyautogui.mouseDown()
@@ -715,9 +681,16 @@ def run(config_path: str, no_overlay: bool = False, skip_validation: bool = Fals
                         if (not two_finger_fired
                                 and now - two_finger_start >= two_finger_stable
                                 and _debounced("right_click", debounce_clock, debounce_seconds, now)):
-                            ti = combo_intent or classify_intent("two_finger_tap", app_context)
-                            execute_action(ti.action)
-                            display_action   = ti.label
+                            # In video context: two_finger_tap = play/pause the video (Space key).
+                            # This is completely separate from closed_fist which pauses the
+                            # gesture system itself.
+                            if app_context == "video_player" and combo_intent is None:
+                                execute_action("key:space")
+                                display_action = "PLAY/PAUSE VIDEO"
+                            else:
+                                ti = combo_intent or classify_intent("two_finger_tap", app_context)
+                                execute_action(ti.action)
+                                display_action = ti.label
                             two_finger_fired = True
                     else:
                         two_finger_start = None

@@ -63,12 +63,7 @@ settings:
     browser_pinch_swipe_threshold: 0.10
     video_seek_horizontal_threshold: 0.05
     video_seek_debounce_seconds: 0.30
-    volume_step_debounce_seconds: 0.18
-
-    # Pinch-swipe sneak seek in video context (single-hand pinch swipe or
-    # two-hand open_palm + pinch). J/L keys = ±10s on YouTube.
-    video_sneak_seek_threshold: 0.05      # how far to swipe before each step fires
-    video_sneak_seek_debounce_seconds: 0.25  # minimum time between repeated steps   # was 0.22 — snappier volume response
+    volume_step_debounce_seconds: 0.18   # was 0.22 — snappier volume response
 
     # Context-specific scroll tuning
     browser_scroll_scale: 1400.0
@@ -273,9 +268,6 @@ context_rules:
     open_palm_horizontal:
       intent: video_seek
       label: "SEEK"
-    primary_click_swipe:
-      intent: video_sneak_seek
-      label: "SNEAK_SEEK"
 
   code_editor:
     two_finger_tap:
